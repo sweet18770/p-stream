@@ -52,6 +52,21 @@ const qualityThresholds = [
   { minHeight: 0, quality: "360" as SourceQuality },
 ];
 
+// Width, not height -- a master isn't always standard 16:9 (e.g. a
+// cinema-cropped 3840x1600 "4K" rendition). heightToQuality's threshold
+// table needs height>=1800 for "4k", so a rendition like that silently fell
+// through to "1080" instead, and with no level ever mapping to "4k" the
+// quality menu's 4K option had nothing to select and stayed permanently
+// unavailable. Width stays consistent across aspect ratios for a given
+// resolution class in a way height doesn't.
+const widthQualityThresholds = [
+  { minWidth: 3200, quality: "4k" as SourceQuality },
+  { minWidth: 1600, quality: "1080" as SourceQuality },
+  { minWidth: 1000, quality: "720" as SourceQuality },
+  { minWidth: 600, quality: "480" as SourceQuality },
+  { minWidth: 0, quality: "360" as SourceQuality },
+];
+
 function heightToQuality(height?: number): SourceQuality | null {
   if (!height) return null;
 
@@ -69,8 +84,33 @@ function heightToQuality(height?: number): SourceQuality | null {
   return "unknown"; // fallback to unknown quality
 }
 
+// HLS levels carry width alongside height (unlike dash.js's Representation,
+// which only ever supplies heightToQuality with a height) -- preferring an
+// exact height match first keeps standard-resolution content classified
+// exactly as before, and only falls back to width for anything that isn't
+// a standard height.
+function resolutionToQuality(
+  width?: number,
+  height?: number,
+): SourceQuality | null {
+  if (!width && !height) return null;
+
+  if (height) {
+    const exactMatch = levelConversionMap[height];
+    if (exactMatch) return exactMatch;
+  }
+
+  if (width) {
+    for (const threshold of widthQualityThresholds) {
+      if (width >= threshold.minWidth) return threshold.quality;
+    }
+  }
+
+  return heightToQuality(height);
+}
+
 function hlsLevelToQuality(level?: Level): SourceQuality | null {
-  return heightToQuality(level?.height);
+  return resolutionToQuality(level?.width, level?.height);
 }
 
 function hlsLevelsToQualities(levels: Level[]): SourceQuality[] {
